@@ -1,0 +1,131 @@
+// -*- mode: c++ -*-
+[["ice-prefix"]] module IceDrive {
+
+  // Basic types
+  sequence<byte> Bytes;
+  sequence<string> Strings;
+
+  // Exceptions
+  exception Unauthorized { string username; };
+  exception UserAlreadyExists { string username; };
+  exception UserNotExists { string username; };
+
+  exception ChildAlreadyExists { string childName; string path; }
+  exception ChildNotExists { string childName; string path; }
+  exception RootHasNoParent {};
+  exception FileNotFound { string filename; }
+  exception FileAlreadyExists { string filename; }
+
+  exception UnknownBlob { string blobId; };
+  exception FailedToReadData {};
+
+  exception TemporaryUnavailable { string serviceName; }
+
+  // *** SERVICES *** //
+
+  // ** Authentication Service **
+  interface User {
+    string getUsername();
+    bool isAlive();
+    void refresh() throws Unauthorized, UserNotExists;
+  };
+
+  interface Authentication {
+    User* login(string username, string password) throws Unauthorized;
+    User* newUser(string username, string password) throws UserAlreadyExists;
+    void removeUser(string username, string password) throws Unauthorized; // Hide UserNotExist to avoid showing too much info
+    bool verifyUser(User *user); // checks if the proxy is created by a valid instance of Authentication, not if the credentials are still valid.
+  };
+
+  // Authentication deferred requests
+  interface AuthenticationQueryResponse {
+    void loginResponse(User* user);
+    void userExists();
+    void userRemoved();
+    void userVerified();
+  };
+
+  interface AuthenticationQuery {
+    void login(string username, string password, AuthenticationQueryResponse* response);
+    void doesUserExist(string username, AuthenticationQueryResponse* response);
+    void removeUser(string username, string password, AuthenticationQueryResponse* response);
+    void verifyUser(User *user, AuthenticationQueryResponse* response);
+  };
+
+  // ** Blob Storage Service **
+
+  interface DataTransfer {
+    Bytes read(int size) throws FailedToReadData;
+    void close();
+  };
+
+  interface BlobService {
+    void link(string blobId) throws UnknownBlob;
+    void unlink(string blobId) throws UnknownBlob;
+
+    string upload(User* user, DataTransfer *blob) throws FailedToReadData, TemporaryUnavailable, Unauthorized;
+    DataTransfer* download(User* user, string blobId) throws UnknownBlob, TemporaryUnavailable, Unauthorized;
+  };
+
+  // Blob service deferred requests
+
+  interface BlobQueryResponse {
+    void downloadBlobResponse(DataTransfer* blob);
+    void blobExists();
+    void blobLinked();
+    void blobUnlinked();
+  };
+
+  interface BlobQuery {
+    void downloadBlob(string blobId, BlobQueryResponse* response);
+    void doesBlobExist(string blobId, BlobQueryResponse* response);
+    void linkBlob(string blobId, BlobQueryResponse* response);
+    void unlinkBlob(string blobId, BlobQueryResponse* response);
+  };
+
+  // ** Directory Service **
+
+  interface Directory {
+    Directory* getParent() throws RootHasNoParent, Unauthorized;
+    string getPath() throws Unauthorized;
+    Strings getChilds() throws Unauthorized;
+    Directory* getChild(string childName) throws ChildNotExists, Unauthorized;
+    Directory* createChild(string childName) throws ChildAlreadyExists, Unauthorized;
+    void removeChild(string childName) throws ChildNotExists, Unauthorized;
+
+    Strings getFiles() throws Unauthorized;
+    string getBlobId(string filename) throws FileNotFound, Unauthorized;
+    void linkFile(string fileName, string blobId) throws FileAlreadyExists, Unauthorized, TemporaryUnavailable;
+    void unlinkFile(string fileName) throws FileNotFound, Unauthorized, TemporaryUnavailable;
+  };
+
+  interface DirectoryService {
+    Directory* getRoot(User* user) throws TemporaryUnavailable, Unauthorized;
+  };
+
+  // Directory service deferred requests
+
+  interface DirectoryServiceQueryResponse{
+    void rootDirectoryResponse(Directory *root);
+  };
+
+  interface DirectoryServiceQuery{
+    void rootDirectory(User* user, DirectoryServiceQueryResponse* response);
+  };
+
+  // *** Services discovery *** //
+  // Types for return types on Discovery
+  sequence<Authentication *> AuthenticationList;
+  sequence<DirectoryService *> DirectoryServiceList;
+  sequence<BlobService *> BlobServiceList;
+
+  interface Discovery {
+    void announceAuthentication(Authentication* prx);
+    void announceDirectoryService(DirectoryService* prx);
+    void announceBlobService(BlobService* prx);
+
+    AuthenticationList getAuthenticationServices();
+    DirectoryServiceList getDiscoveryServices();
+    BlobServiceList getBlobServices();
+  };
+}
